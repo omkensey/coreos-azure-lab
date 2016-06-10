@@ -1,0 +1,340 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "newStorageAccountName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the storage account for VM OS Disks (must be 3-24 lowercase alphanumeric characters)"
+      }
+    },
+    "etcdVmSize": {
+      "type": "string",
+      "defaultValue": "Standard_A1",
+      "allowedValues": [
+        "Standard_A0",
+        "Standard_A1",
+        "Standard_A2",
+        "Standard_A3",
+        "Standard_A4"
+      ],
+      "metadata": {
+        "description": "Instance size for the etcd VMs"
+      }
+    },
+    "hostVmSize": {
+      "type": "string",
+      "defaultValue": "Standard_A2",
+      "allowedValues": [
+        "Standard_A1",
+        "Standard_A2",
+        "Standard_A3",
+        "Standard_A4"
+      ],
+      "metadata": {
+        "description": "Instance size for the container host VMs"
+      }
+    },
+    "numberOfEtcdNodes": {
+      "type": "int",
+      "defaultValue": 3,
+      "allowedValues": [
+        3, 5, 7
+      ],
+      "metadata": {
+        "description": "Number of etcd nodes to create (3, 5, or 7)"
+      }
+    },
+    "numberOfHostNodes": {
+      "type": "int",
+      "defaultValue": 2,
+      "metadata": {
+        "description": "Number of host nodes to create (2+ recommended)"
+      }
+    },
+    "coreOSOldVersion": {
+      "type": "string",
+      "defaultValue": "899.17.0"
+    },
+    "adminUserName": {
+      "type": "string",
+      "defaultValue": "core",
+      "metadata": {
+        "description": "Username to login to the VMs"
+      }
+    },
+    "sshKeyData": {
+      "type": "string",
+      "metadata": {
+        "description": "Public key for SSH authentication"
+      }
+    },
+    "discoveryUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "discoveryUrl for etcd2 cluster"
+      }
+    }
+  },
+  "variables": {
+    "totalNodes": "[add(parameters('numberOfEtcdNodes'),parameters('numberOfHostNodes'))]",
+    "virtualNetworkName": "WhitegloveVNET",
+    "addressPrefix": "10.0.0.0/16",
+    "subnet1Name": "etcdSubnet",
+    "subnet1Prefix": "10.0.0.0/24",
+    "subnet2Name": "hostSubnet",
+    "subnet2Prefix": "10.0.1.0/24",
+    "publicIPAddressType": "Dynamic",
+    "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('virtualNetworkName'))]",
+    "subnet1Ref": "[concat(variables('vnetID'),'/subnets/',variables('subnet1Name'))]",
+    "subnet2Ref": "[concat(variables('vnetID'),'/subnets/',variables('subnet2Name'))]",
+    "vmEtcdNamePrefix": "coreos-whiteglove-etcd",
+    "vmHostNamePrefix": "coreos-whiteglove-host",
+    "imageSku": "Stable",
+    "vmStorageAccountContainerName": "vhds",
+    "storageAccountType": "Standard_LRS",
+    "sshKeyPath": "[concat('/home/',parameters('adminUsername'),'/.ssh/authorized_keys')]",
+    "unitFile": "[concat('#cloud-config\n\ncoreos:\n  etcd2:\n    advertise-client-urls: http://$private_ipv4:2379\n    initial-advertise-peer-urls: http://$private_ipv4:2380\n    listen-client-urls: http://$private_ipv4:2379,http://127.0.0.1:2379\n    listen-peer-urls: http://$private_ipv4:2380\n    discovery: ',parameters('discoveryUrl'),'\n  units:\n    - name: etcd2.service\n      command: start')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "name": "[parameters('newStorageAccountName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "accountType": "[variables('storageAccountType')]"
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[concat('etcdPublicIP', copyindex())]",
+      "copy": {
+        "name": "etcdIpLoop",
+        "count": "[parameters('numberOfEtcdNodes')]"
+      },
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "publicIPAllocationMethod": "[variables('publicIPAddressType')]"
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[concat('hostPublicIP', copyindex())]",
+      "copy": {
+        "name": "hostIpLoop",
+        "count": "[parameters('numberOfHostNodes')]"
+      },
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "publicIPAllocationMethod": "[variables('publicIPAddressType')]"
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('virtualNetworkName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('addressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnet1Name')]",
+            "properties": {
+              "addressPrefix": "[variables('subnet1Prefix')]"
+            }
+          },
+          {
+            "name": "[variables('subnet2Name')]",
+            "properties": {
+              "addressPrefix": "[variables('subnet2Prefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat('etcdNic', copyindex())]",
+      "copy": {
+        "name": "etcdNicLoop",
+        "count": "[parameters('numberOfEtcdNodes')]"
+      },
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/publicIPAddresses/', 'etcdPublicIP', copyindex())]",
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIpAddresses', concat('etcdPublicIP', copyindex()))]"
+              },
+              "subnet": {
+                "id": "[variables('subnet1Ref')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat('hostNic', copyindex())]",
+      "copy": {
+        "name": "hostNicLoop",
+        "count": "[parameters('numberOfHostNodes')]"
+      },
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/publicIPAddresses/', 'hostPublicIP', copyindex())]",
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIpAddresses', concat('hostPublicIP', copyindex()))]"
+              },
+              "subnet": {
+                "id": "[variables('subnet2Ref')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[concat(variables('vmEtcdNamePrefix'), copyindex())]",
+      "copy": {
+        "name": "vmEtcdLoop",
+        "count": "[parameters('numberOfEtcdNodes')]"
+      },
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[concat('Microsoft.Storage/storageAccounts/', parameters('newStorageAccountName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', 'etcdNic', copyindex())]"
+      ],
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('etcdVmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[concat(variables('vmEtcdNamePrefix'), copyindex())]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "customData": "[base64(variables('unitFile'))]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": "true",
+            "ssh": {
+              "publicKeys": [
+                {
+                  "path": "[variables('sshKeyPath')]",
+                  "keyData": "[parameters('sshKeyData')]"
+                }
+              ]
+            }
+          }
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "CoreOS",
+            "offer": "CoreOS",
+            "sku": "[variables('imageSku')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "[concat(variables('vmEtcdNamePrefix'), copyindex())]",
+            "vhd": {
+              "uri": "[concat('http://',parameters('newStorageAccountName'),'.blob.core.windows.net/vhds/',variables('vmEtcdNamePrefix'), copyindex(),'.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat('etcdNic',copyindex()))]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[concat(variables('vmHostNamePrefix'), copyindex())]",
+      "copy": {
+        "name": "vmHostLoop",
+        "count": "[parameters('numberOfHostNodes')]"
+      },
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[concat('Microsoft.Storage/storageAccounts/', parameters('newStorageAccountName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', 'hostNic', copyindex())]",
+        "vmEtcdLoop"
+      ],
+      "apiVersion": "2015-05-01-preview",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('hostVmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[concat(variables('vmHostNamePrefix'), copyindex())]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "customData": "[base64(variables('unitFile'))]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": "true",
+            "ssh": {
+              "publicKeys": [
+                {
+                  "path": "[variables('sshKeyPath')]",
+                  "keyData": "[parameters('sshKeyData')]"
+                }
+              ]
+            }
+          }
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "CoreOS",
+            "offer": "CoreOS",
+            "sku": "[variables('imageSku')]",
+            "version": "[parameters('coreOSOldVersion')]"
+          },
+          "osDisk": {
+            "name": "[concat(variables('vmHostNamePrefix'), copyindex())]",
+            "vhd": {
+              "uri": "[concat('http://',parameters('newStorageAccountName'),'.blob.core.windows.net/vhds/',variables('vmHostNamePrefix'), copyindex(),'.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat('hostNic',copyindex()))]"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
