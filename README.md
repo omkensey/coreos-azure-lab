@@ -457,7 +457,7 @@ dig wordpress-db.whiteglove.lab @$DOCKER_BRIDGE_IP
 At last we use what we've set up to this point to finally run the WordPress container itself on **host1**:
 
 ```
-docker run --dns $DOCKER_BRIDGE_IP --env WORDPRESS_DB_HOST=wordpress-db.whiteglove.lab --env WORDPRESS_DB_PASSWORD=$RANDOM_PW --name wordpress_frontend wordpress
+docker run -d --dns $DOCKER_BRIDGE_IP --env WORDPRESS_DB_HOST=wordpress-db.whiteglove.lab --env WORDPRESS_DB_PASSWORD=$RANDOM_PW --name wordpress_frontend wordpress
 export WORDPRESS_FLANNEL_IP=$(docker inspect wordpress_frontend | jq -c -r .[].NetworkSettings.Networks.bridge.IPAddress)
 echo $WORDPRESS_FLANNEL_IP
 ```
