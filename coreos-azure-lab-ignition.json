@@ -2,37 +2,22 @@
   "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
+    "sshKeyData": {
+      "type": "string",
+      "metadata": {
+        "description": "Public key for SSH authentication"
+      }
+    },
+    "discoveryUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Discovery URL for etcd2 cluster"
+      }
+    },
     "newStorageAccountName": {
       "type": "string",
       "metadata": {
         "description": "Name of the storage account for VM OS Disks (must be 3-24 lowercase alphanumeric characters)"
-      }
-    },
-    "etcdVmSize": {
-      "type": "string",
-      "defaultValue": "Standard_A1",
-      "allowedValues": [
-        "Standard_A0",
-        "Standard_A1",
-        "Standard_A2",
-        "Standard_A3",
-        "Standard_A4"
-      ],
-      "metadata": {
-        "description": "Instance size for the etcd VMs"
-      }
-    },
-    "hostVmSize": {
-      "type": "string",
-      "defaultValue": "Standard_A2",
-      "allowedValues": [
-        "Standard_A1",
-        "Standard_A2",
-        "Standard_A3",
-        "Standard_A4"
-      ],
-      "metadata": {
-        "description": "Instance size for the container host VMs"
       }
     },
     "numberOfEtcdNodes": {
@@ -52,33 +37,42 @@
         "description": "Number of host nodes to create (2+ recommended)"
       }
     },
+    "etcdVmSize": {
+      "type": "string",
+      "defaultValue": "Standard_A1",
+      "allowedValues": [
+        "Standard_A0",
+        "Standard_A1",
+        "Standard_A2",
+        "Standard_A3",
+        "Standard_A4"
+      ],
+      "metadata": {
+        "description": "Instance size for the etcd VMs"
+      }
+    },
+    "hostVmSize": {
+      "type": "string",
+      "defaultValue": "Standard_A3",
+      "allowedValues": [
+        "Standard_A1",
+        "Standard_A2",
+        "Standard_A3",
+        "Standard_A4"
+      ],
+      "metadata": {
+        "description": "Instance size for the container host VMs"
+      }
+    },
     "coreOSOldVersion": {
       "type": "string",
-      "defaultValue": "899.17.0"
-    },
-    "adminUserName": {
-      "type": "string",
-      "defaultValue": "core",
-      "metadata": {
-        "description": "Username to login to the VMs"
-      }
-    },
-    "sshKeyData": {
-      "type": "string",
-      "metadata": {
-        "description": "Public key for SSH authentication"
-      }
-    },
-    "discoveryUrl": {
-      "type": "string",
-      "metadata": {
-        "description": "discoveryUrl for etcd2 cluster"
-      }
+      "defaultValue": "1068.10.0"
     }
   },
   "variables": {
+    "adminUserName": "core",
     "totalNodes": "[add(parameters('numberOfEtcdNodes'),parameters('numberOfHostNodes'))]",
-    "virtualNetworkName": "WhitegloveVNET",
+    "virtualNetworkName": "AzureLabVNET",
     "addressPrefix": "10.0.0.0/16",
     "subnet1Name": "etcdSubnet",
     "subnet1Prefix": "10.0.0.0/24",
@@ -88,20 +82,21 @@
     "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('virtualNetworkName'))]",
     "subnet1Ref": "[concat(variables('vnetID'),'/subnets/',variables('subnet1Name'))]",
     "subnet2Ref": "[concat(variables('vnetID'),'/subnets/',variables('subnet2Name'))]",
-    "vmEtcdNamePrefix": "coreos-whiteglove-etcd",
-    "vmHostNamePrefix": "coreos-whiteglove-host",
+    "vmEtcdNamePrefix": "coreos-etcd",
+    "vmHostNamePrefix": "coreos-host",
     "imageSku": "Stable",
     "vmStorageAccountContainerName": "vhds",
     "storageAccountType": "Standard_LRS",
-    "sshKeyPath": "[concat('/home/',parameters('adminUsername'),'/.ssh/authorized_keys')]",
-    "unitFile": "[concat('#cloud-config\n\ncoreos:\n  etcd2:\n    advertise-client-urls: http://$private_ipv4:2379\n    initial-advertise-peer-urls: http://$private_ipv4:2380\n    listen-client-urls: http://$private_ipv4:2379,http://127.0.0.1:2379\n    listen-peer-urls: http://$private_ipv4:2380\n    discovery: ',parameters('discoveryUrl'),'\n  units:\n    - name: etcd2.service\n      command: start')]"
+    "sshKeyPath": "[concat('/home/',variables('adminUsername'),'/.ssh/authorized_keys')]",
+    "etcdIgnition": "[concat('{\"ignition\":{\"version\":\"2.0.0\"},\"systemd\":{\"units\":[{\"name\":\"etcd2.service\",\"enable\":true,\"dropins\":[{\"name\":\"metadata.conf\",\"contents\":\"[Unit]\\nRequires=coreos-metadata.service\\nAfter=coreos-metadata.service\\n\\n[Service]\\nEnvironmentFile=/run/metadata/coreos\\nExecStart=\\nExecStart=/usr/bin/etcd2 --advertise-client-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2379 --initial-advertise-peer-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2380 --listen-client-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2379,http://127.0.0.1:2379 --listen-peer-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2380 --discovery ',parameters('discoveryUrl'),'\"}]},{\"name\":\"coreos-metadata.service\",\"enable\":true,\"dropins\":[{\"name\": \"after-network.conf\",\"contents\": \"[Unit]\\nRequires=network-online.target\\nAfter=network-online.target\"}]}]}}')]",
+    "hostIgnition": "[concat('{\"ignition\":{\"version\":\"2.0.0\"},\"systemd\":{\"units\":[{\"name\":\"etcd2.service\",\"enable\":true,\"dropins\":[{\"name\":\"metadata.conf\",\"contents\":\"[Unit]\\nRequires=coreos-metadata.service\\nAfter=coreos-metadata.service\\n\\n[Service]\\nEnvironmentFile=/run/metadata/coreos\\nExecStart=\\nExecStart=/usr/bin/etcd2 --advertise-client-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2379 --initial-advertise-peer-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2380 --listen-client-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2379,http://127.0.0.1:2379 --listen-peer-urls http://${COREOS_AZURE_IPV4_DYNAMIC}:2380 --discovery ',parameters('discoveryUrl'),'\"}]},{\"name\":\"coreos-metadata.service\",\"enable\":true,\"dropins\":[{\"name\": \"after-network.conf\",\"contents\": \"[Unit]\\nRequires=network-online.target\\nAfter=network-online.target\"}]},{\"name\":\"flanneld.service\",\"enable\":true}]}}')]"
   },
   "resources": [
     {
       "type": "Microsoft.Storage/storageAccounts",
       "name": "[parameters('newStorageAccountName')]",
       "location": "[resourceGroup().location]",
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "accountType": "[variables('storageAccountType')]"
       }
@@ -114,7 +109,7 @@
         "count": "[parameters('numberOfEtcdNodes')]"
       },
       "location": "[resourceGroup().location]",
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "publicIPAllocationMethod": "[variables('publicIPAddressType')]"
       }
@@ -127,7 +122,7 @@
         "count": "[parameters('numberOfHostNodes')]"
       },
       "location": "[resourceGroup().location]",
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "publicIPAllocationMethod": "[variables('publicIPAddressType')]"
       }
@@ -136,7 +131,7 @@
       "type": "Microsoft.Network/virtualNetworks",
       "name": "[variables('virtualNetworkName')]",
       "location": "[resourceGroup().location]",
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "addressSpace": {
           "addressPrefixes": [
@@ -171,7 +166,7 @@
         "[concat('Microsoft.Network/publicIPAddresses/', 'etcdPublicIP', copyindex())]",
         "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
       ],
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "ipConfigurations": [
           {
@@ -201,7 +196,7 @@
         "[concat('Microsoft.Network/publicIPAddresses/', 'hostPublicIP', copyindex())]",
         "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
       ],
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "ipConfigurations": [
           {
@@ -231,15 +226,21 @@
         "[concat('Microsoft.Storage/storageAccounts/', parameters('newStorageAccountName'))]",
         "[concat('Microsoft.Network/networkInterfaces/', 'etcdNic', copyindex())]"
       ],
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "hardwareProfile": {
           "vmSize": "[parameters('etcdVmSize')]"
         },
+        "diagnosticsProfile": {
+          "bootDiagnostics": {
+            "enabled": true,
+            "storageUri": "[concat('http://', parameters('newStorageAccountName'), '.blob.core.windows.net')]"
+          }
+        },
         "osProfile": {
           "computerName": "[concat(variables('vmEtcdNamePrefix'), copyindex())]",
-          "adminUsername": "[parameters('adminUsername')]",
-          "customData": "[base64(variables('unitFile'))]",
+          "adminUsername": "[variables('adminUsername')]",
+          "customData": "[base64(variables('etcdIgnition'))]",
           "linuxConfiguration": {
             "disablePasswordAuthentication": "true",
             "ssh": {
@@ -290,15 +291,21 @@
         "[concat('Microsoft.Network/networkInterfaces/', 'hostNic', copyindex())]",
         "vmEtcdLoop"
       ],
-      "apiVersion": "2015-05-01-preview",
+      "apiVersion": "2015-06-15",
       "properties": {
         "hardwareProfile": {
           "vmSize": "[parameters('hostVmSize')]"
         },
+        "diagnosticsProfile": {
+          "bootDiagnostics": {
+            "enabled": true,
+            "storageUri": "[concat('http://', parameters('newStorageAccountName'), '.blob.core.windows.net')]"
+          }
+        },
         "osProfile": {
           "computerName": "[concat(variables('vmHostNamePrefix'), copyindex())]",
-          "adminUsername": "[parameters('adminUsername')]",
-          "customData": "[base64(variables('unitFile'))]",
+          "adminUsername": "[variables('adminUsername')]",
+          "customData": "[base64(variables('hostIgnition'))]",
           "linuxConfiguration": {
             "disablePasswordAuthentication": "true",
             "ssh": {

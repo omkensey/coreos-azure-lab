@@ -1,4 +1,4 @@
-# CoreOS Linux on Azure: White-Glove Lab
+# CoreOS Linux on Azure Lab
  
 ## Intro
 
@@ -27,13 +27,13 @@ For your convenience, to generate a discovery URL, just click on the appropriate
 For Linux and MacOS X machines, creating the keypair should be as simple as this:
 
 ```
-ssh-keygen -f ~/.ssh/id_rsa_coreos_whiteglove
+ssh-keygen -f ~/.ssh/id_rsa_coreos_azure_lab
 ```
 
-You will be prompted for the passphrase and the keypair will be created, with the public key in id_rsa_coreos_whiteglove.pub.  When SSH'ing into your VMs after the deployment, use the -i flag to specify the private key file:
+You will be prompted for the passphrase and the keypair will be created, with the public key in `id_rsa_coreos_azure_lab.pub`.  When SSH'ing into your VMs after the deployment, use the -i flag to specify the private key file:
 
 ```
-ssh -i ~/.ssh/id_rsa_coreos_whiteglove core@[public IP address]
+ssh -i ~/.ssh/id_rsa_coreos_azure_lab core@[public IP address]
 ```
 
 #### Windows
@@ -60,9 +60,9 @@ Once Pageant starts up it will create a system tray icon of a computer with a ha
 
 ### Download and deploy the Azure Resource Manager deployment template
 
-The Azure Resource Manager deployment template for this lab is located in this GitHub repository, under the filename [coreos-whiteglove.json](https://raw.githubusercontent.com/omkensey/coreos-whiteglove-lab/master/coreos-whiteglove.json).
+The Azure Resource Manager deployment templates for this lab are located in this GitHub repository.  There are two that implement the same functionality: [coreos-azure-lab-ignition.json](https://raw.githubusercontent.com/omkensey/coreos-azure-lab/master/coreos-azure-lab-ignition.json), and [coreos-azure-lab-cloud-config.json](https://raw.githubusercontent.com/omkensey/coreos-azure-lab/master/coreos-azure-lab-cloud-config.json).  Both of these templates set up an etcd cluster, with a separate set of hosts that will run etcd proxies to the cluster.
 
-When you deploy the template, the required options with no defaults are the storage account name, SSH public key (in OpenSSH format, e.g. "ssh-rsa AAAA.....") and discovery URL that you created earlier.  There is also an option for the etcd cluster size, which should match the size you specified when creating the discovery URL, ans an option for the number of container hosts to start (for this lab, you will want at least two to really demonstrate the concepts, and the exercises are written to assume two hosts named **host0** and **host1**, but most steps of the exercises can be done with only one).
+When you deploy the template, the required options with no defaults are the storage account name, SSH public key (in OpenSSH format, e.g. "ssh-rsa AAAA.....") and discovery URL that you created earlier.  There is also an option for the etcd cluster size, which should match the size you specified when creating the discovery URL, and an option for the number of container hosts to start (for this lab, you will want at least two to really demonstrate the concepts, and the exercises are written to assume two hosts named **host0** and **host1**, but most steps of the exercises can be done with only one).
 
 After the notice that deployment was successful, use the SSH client on your OS to log in to your instances:
 
@@ -161,14 +161,14 @@ Notice that when you ask a non-leader for leader statistics, it simply tells you
 
 ```
 etcdctl ls --recursive
-etcdctl set /foo "Joe"
+etcdctl set /example "Azure"
 etcdctl ls --recursive
 ```
 
 We've set a key and we can see that it shows up in a listing now.  Now on **host1**:
 
 ```
-etcdctl get /foo
+etcdctl get /example
 ```
 
 You should see the value you just set on **host0**.
@@ -176,38 +176,38 @@ You should see the value you just set on **host0**.
 Now, still on **host1**:
 
 ```
-etcdctl watch /foo
+etcdctl watch /example
 ```
 
 Note: as we see here, you can watch a key that doesn't exist yet.  Also note that you don't get a command prompt back yet -- the `etcdctl` client is waiting until it sees a change in the key you told it to watch.  So let's change that key -- on **host0**:
 
 ```
-etcdctl set /foo "Alex"
+etcdctl set /example "Alex"
 ```
 
 On **host1**, the watch now returns with some info about the key change.
 
-Now delete the key /foo:
+Now delete the key /example:
 
 ```
-etcdctl rm /foo
+etcdctl rm /example
 ```
 
 We do this for two reasons:
 
 * To demonstrate the action itself
-* To remove the /foo key in advance of the next task, which will use /foo as a subtree instead of a key
+* To remove the /example key in advance of the next task, which will use /example as a subtree instead of a key
 
 Let's watch a whole subtree.  On **host1**:
 
 ```
-etcdctl watch --recursive /foo
+etcdctl watch --recursive /example
 ```
 
 And on **host0**:
 
 ```
-etcdctl set /foo/bar "Jeff"
+etcdctl set /example/name "Jeff"
 ```
 
 Again the watch returns on **host1**, and this time there is more info given: because we aren't just watching one key, etcd tells us about which key triggered the end of the watch.
@@ -215,7 +215,7 @@ Again the watch returns on **host1**, and this time there is more info given: be
 An interesting kind of watch the `etcdctl` client supports is an exec-watch, where the client runs something when the watch returns.  On **host1**:
 
 ```
-etcdctl exec-watch --recursive /foo -- /bin/sh -c 'echo "Hello "$ETCD_WATCH_VALUE'
+etcdctl exec-watch --recursive /example -- /bin/sh -c 'echo "Hello "$ETCD_WATCH_VALUE'
 ```
 
 (Be careful about single and double quotes in the above.)
@@ -223,7 +223,7 @@ etcdctl exec-watch --recursive /foo -- /bin/sh -c 'echo "Hello "$ETCD_WATCH_VALU
 Now on **host0**:
 
 ```
-etcdctl set /foo/baz "Aleks"
+etcdctl set /example/name "Aleks"
 ```
 
 Note that the specified command was run, but the `etcdctl` client did not exit this time.  You can cause the other watches to behave this way using the `--forever` option to `etcdctl`.  To end this watch, hit Ctrl-C.
@@ -271,29 +271,14 @@ Flannel uses one basic concept: a large "allocation network" from which subnets 
 etcdctl set /coreos.com/network/config '{ "Network": "10.2.0.0/16" }'
 ```
 
-Now we need to set up **host0** so that docker will depend on flannel and flannel will be started first anytime docker starts.  To do this, we create a "drop-in" for the docker unit of systemd, that declares that dependency.  On **host0**:
+Now we need to set up **host0** so that flannel will start on boot, then restart docker so it can use flannel:
 
 ```
-sudo mkdir /etc/systemd/system/docker.service.d
-sudo vi /etc/systemd/system/docker.service.d/50-docker-depends-on.conf
-```
-
-In the vi window, insert this text for the contents of the file:
-
-```
-[Unit]
-Requires=flanneld.service
-After=flanneld.service
-```
-
-After saving and exiting the file:
-
-```
-sudo systemctl daemon-reload
+sudo systemctl enable flannel
 sudo systemctl restart docker
 ```
 
-There will probably be a pause as docker stops and then flannel and docker start.  If everything was configured correctly, you should now have a flannel0 interface:
+If everything was configured correctly, you should now have a flannel0 interface:
 
 ```
 ip a
@@ -309,9 +294,7 @@ etcdctl get /coreos.com/network/subnets/[host subnet key]
 Now repeat the configuration on your other host(s):
 
 ```
-sudo mkdir /etc/systemd/system/docker.service.d
-sudo vi /etc/systemd/system/docker.service.d/50-docker-depends-on.conf
-sudo systemctl daemon-reload
+sudo systemctl enable flannel
 sudo systemctl restart docker
 ip a
 ```
@@ -517,7 +500,7 @@ Here endeth the demo proper.  However, a couple of final thoughts are in order:
 
 And finally, no class is complete without reading to do at home:
 
-* Our provisioning template uses the cloud-config format, but future CoreOS Linux configuration is focused on the new [Ignition](https://coreos.com/ignition/) system.
+* Read more about the [Ignition](https://coreos.com/ignition/) system.
 * We used the docker runtime in this lab, but other container runtimes exist.  Read about CoreOS' [rkt](https://coreos.com/rkt/).
 * The developers of Flannel are joining forces with Calico, another overlay networking system, to produce [Canal](https://github.com/tigera/canal).
 * Last, but certainly not least, instead of writing your own orchestration system, powerful, flexible ones already exist.  CoreOS contributes a great deal of development upstream to [Kubernetes](http://kubernetes.io/docs/).
