@@ -375,13 +375,13 @@ export RANDOM_PW=[paste password here]
 Now we can begin deploying our app.  First, let's configure the etcd portion of SkyDNS:
 
 ```
-etcdctl set /skydns/config '{ "domain": "whiteglove.lab" }'
-etcdctl set /skydns/lab/whiteglove/test '{ "host": "[some IP]" }'
+etcdctl set /skydns/config '{ "domain": "azure.lab" }'
+etcdctl set /skydns/lab/azure/test '{ "host": "[some IP]" }'
 ```
 
 [some IP] should be substituted with any IP address you want.  Since it's just a test entry to show that SkyDNS works in a later step, it doesn't matter what IP you use here.
 
-The first command tells SkyDNS what domain it's authoritative for -- otherwise it will try to redirect all queries.  The second command sets up a host record under that domain -- note the reversed domain components `lab/whiteglove/` that appear in the path for the hostname correspond to the domain name whiteglove.lab that we specified in the first command.
+The first command tells SkyDNS what domain it's authoritative for -- otherwise it will try to redirect all queries.  The second command sets up a host record under that domain -- note the reversed domain components `lab/azure/` that appear in the path for the hostname correspond to the domain name azure.lab that we specified in the first command.
 
 Now let's actually run SkyDNS.  On **host0**:
 
@@ -398,10 +398,10 @@ The important parts of this are:
 Now we should be able to query SkyDNS for the test hostname we set a few steps back, on **host0**:
 
 ```
-dig test.whiteglove.lab @$DOCKER_BRIDGE_IP
+dig test.azure.lab @$DOCKER_BRIDGE_IP
 ```
 
-You should get back an A record for test.whiteglove.lab that points to the IP you used earlier.
+You should get back an A record for test.azure.lab that points to the IP you used earlier.
 
 Let's run our MySQL container on **host0**:
 
@@ -419,28 +419,28 @@ Now we can query the container for its IP, and set a hostname for that IP in Sky
 ```
 export MYSQL_FLANNEL_IP=$(docker inspect wordpress_db | jq -c -r .[].NetworkSettings.Networks.bridge.IPAddress)
 echo $MYSQL_FLANNEL_IP
-etcdctl set /skydns/lab/whiteglove/wordpress-db '{ "host": "'${MYSQL_FLANNEL_IP}'" }'
+etcdctl set /skydns/lab/azure/wordpress-db '{ "host": "'${MYSQL_FLANNEL_IP}'" }'
 ```
 
 We should now be able to query for the hostname we just set:
 
 ```
-dig wordpress-db.whiteglove.lab @$DOCKER_BRIDGE_IP
+dig wordpress-db.azure.lab @$DOCKER_BRIDGE_IP
 ```
 
-(Note the @ sign in front of $DOCKER_BRIDGE_IP.)  You should get back an A record for wordpress-db.whiteglove.lab.
+(Note the @ sign in front of $DOCKER_BRIDGE_IP.)  You should get back an A record for wordpress-db.azure.lab.
 
 Now let's set up and run SkyDNS on **host1**, to verify that we'll be able to use the MySQL database container hostname there:
 
 ```
 docker run -d --net=host --env SKYDNS_ADDR=${DOCKER_BRIDGE_IP}:53 --env ETCD_MACHINES=$ETCD_PROXY skynetservices/skydns
-dig wordpress-db.whiteglove.lab @$DOCKER_BRIDGE_IP
+dig wordpress-db.azure.lab @$DOCKER_BRIDGE_IP
 ```
 
 At last we use what we've set up to this point to finally run the WordPress container itself on **host1**:
 
 ```
-docker run -d --dns $DOCKER_BRIDGE_IP --env WORDPRESS_DB_HOST=wordpress-db.whiteglove.lab --env WORDPRESS_DB_PASSWORD=$RANDOM_PW --name wordpress_frontend wordpress
+docker run -d --dns $DOCKER_BRIDGE_IP --env WORDPRESS_DB_HOST=wordpress-db.azure.lab --env WORDPRESS_DB_PASSWORD=$RANDOM_PW --name wordpress_frontend wordpress
 export WORDPRESS_FLANNEL_IP=$(docker inspect wordpress_frontend | jq -c -r .[].NetworkSettings.Networks.bridge.IPAddress)
 echo $WORDPRESS_FLANNEL_IP
 ```
