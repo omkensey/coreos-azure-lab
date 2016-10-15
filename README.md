@@ -566,13 +566,12 @@ and delete the resource group.
 
 Here endeth the demo proper.  However, a couple of final thoughts are in order:
 
-* A lot of the above tasks are done manually.  How might you automate them to make them easier to deploy and/or more reliable?
-* Even accounting for the amount of manual configuration, consider that we have successfully deployed a distributed application in a matter of a few minutes (not counting time spent on general exploration).  Well-designed containers and featureful container runtimes are a major enabler of this kind of rapid and reliable deployment, by allowing you to "plug together" components that do the tasks your app needs.
+* Consider that we have successfully deployed two distributed applications in a matter of a few minutes (not counting time spent on general exploration).  Well-designed containers and featureful container runtimes are a major enabler of this kind of rapid and reliable deployment, by allowing you to "plug together" components that do the tasks your app needs.
 * By using the overlay networking provided by flannel we are able to avoid a lot of tedious and brittle network configuration, but still enjoy isolation of containers from each other and the host running them.
 
 And finally, no class is complete without reading to do at home:
 
 * Read more about the [Ignition](https://coreos.com/ignition/) system.
-* We used the docker runtime in this lab, but other container runtimes exist.  Read about CoreOS' [rkt](https://coreos.com/rkt/).
+* We used the docker runtime interactively in this lab, but bootkube starts Kubernetes using ACI containers running under rkt.  Read about CoreOS' [rkt](https://coreos.com/rkt/).
 * The developers of Flannel are joining forces with Calico, another overlay networking system, to produce [Canal](https://github.com/tigera/canal).
-* Last, but certainly not least, instead of writing your own orchestration system, powerful, flexible ones already exist.  CoreOS contributes a great deal of development upstream to [Kubernetes](http://kubernetes.io/docs/).
+* Last, but certainly not least, CoreOS contributes a great deal of development upstream to [Kubernetes](http://kubernetes.io/docs/).
