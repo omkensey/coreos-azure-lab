@@ -552,7 +552,7 @@ After the first command you should see output about the creatuion of the service
 watch -n 1 kubectl --kubeconfig=cluster/auth/kubeconfig get pods
 ```
 
-Once all the pods are Running, you should be able to access the guestbook applicationin your browser on either Kubernetes node's public IP, on port 30080.
+Once all the pods are Running, you should be able to access the guestbook application in your browser on either Kubernetes node's public IP, on port 30080.
 
 Finally, from all hosts, containers, databases, etc., you can now
 
