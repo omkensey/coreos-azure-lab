@@ -7,6 +7,7 @@ Environment=KUBELET_ACI=quay.io/coreos/hyperkube
 Environment=KUBELET_VERSION=v1.3.6_coreos.0
 Environment="RKT_OPTS=--volume etc-resolv,kind=host,source=/etc/resolv.conf --mount volume=etc-resolv,target=/etc/resolv.conf"
 EnvironmentFile=/etc/environment
+EnvironmentFile=-/run/metadata/coreos
 
 ExecStartPre=/bin/mkdir -p /etc/kubernetes/manifests
 ExecStart=/usr/lib/coreos/kubelet-wrapper \

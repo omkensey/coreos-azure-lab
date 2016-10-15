@@ -67,6 +67,17 @@ function configure_network() {
 
 # Initialize a Master node
 function init_master_node() {
+    COREOS_PRIVATE_IPV4=${COREOS_PRIVATE_IPV4:-${COREOS_AZURE_IPV4_DYNAMIC}}
+    if ! grep COREOS_PRIVATE_IPV4 /etc/environment; then
+      echo "COREOS_PRIVATE_IPV4="$COREOS_PRIVATE_IPV4 >> /etc/environment
+    fi
+
+    if ! grep COREOS_PUBLIC_IPV4 /etc/environment; then
+      if [ -f /tmp/$(cat /etc/machine-id)-public-ip ]; then
+        source /tmp/$(cat /etc/machine-id)-public-ip
+      fi
+      echo "COREOS_PUBLIC_IPV4="$COREOS_PUBLIC_IPV4 >> /etc/environment
+    fi
 
     if [ -z "$COREOS_PUBLIC_IPV4" ]; then
       echo "Missing IP metadata: public IP (COREOS_PUBLIC_IPV4)"
@@ -79,7 +90,7 @@ function init_master_node() {
     systemctl stop update-engine; systemctl mask update-engine
 
     # Start etcd and configure network settings
-    configure_etcd
+    #configure_etcd
     configure_network
 
     # Start flannel
@@ -118,6 +129,10 @@ function init_master_node() {
 # This script can execute on a remote host by copying itself + kubelet service unit to remote host.
 # After assets are available on the remote host, the script will execute itself in "local" mode.
 if [ "${REMOTE_HOST}" != "local" ]; then
+
+    # Send public-IP metadata; Azure has no way to read this from inside an instance
+    echo "COREOS_PUBLIC_IPV4="$REMOTE_HOST | ssh -i ${IDENT} -p ${REMOTE_PORT} core@${REMOTE_HOST} 'cat - > /tmp/$(cat /etc/machine-id)-public-ip'
+
     # Set up the kubelet.service on remote host
     scp -i ${IDENT} -P ${REMOTE_PORT} kubelet.master core@${REMOTE_HOST}:/home/core/kubelet.master
     ssh -i ${IDENT} -p ${REMOTE_PORT} core@${REMOTE_HOST} "sudo mv /home/core/kubelet.master /etc/systemd/system/kubelet.service"

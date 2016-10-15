@@ -10,7 +10,7 @@ You will need to do three things to prepare for and provision this lab:
 
 ### Set up a discovery URL for the etcd cluster
 
-When you deploy them template, you will have the option to choose a 3-node, 5-node or 7-node etcd cluster.  What size you choose is up to you, but the size you use to generate the discovery URL and the size of the cluster you specify when deploying the template must match or the deployment will not behave correctly.
+When you deploy the template, you will have the option to choose a 3-node, 5-node or 7-node etcd cluster.  What size you choose is up to you, but the size you use to generate the discovery URL must be smaller than the size of the cluster you specify when deploying the template or the deployment will not behave correctly.
 
 For your convenience, to generate a discovery URL, just click on the appropriate link, then copy and save the URL that is returned in your browser window:
 
@@ -108,7 +108,7 @@ NOTE: If your host has been running for a while, it may have already updated its
 vi /etc/coreos/update.conf
 ```
 
-Change `GROUP=stable` to `GROUP=alpha`, save and exit, then repeat the update commands just above.
+Change `GROUP=stable` to `GROUP=beta`, save and exit, then repeat the update commands just above.
 
 As the update process proceeds, you will notice that first the availability of an update is noted, then its download progress is shown until it finishes downloading, then the remaining stages (verify and apply) are shown in turn.  After the update process completes, you should get a console broadcast that the host needs to be rebooted -- you can either reboot it manually, or wait for it to reboot itself in 5 minutes.  Either way, break out of the watch with Ctrl-C and examine the partition metadata again:
 
@@ -182,7 +182,7 @@ etcdctl watch /example
 Note: as we see here, you can watch a key that doesn't exist yet.  Also note that you don't get a command prompt back yet -- the `etcdctl` client is waiting until it sees a change in the key you told it to watch.  So let's change that key -- on **host0**:
 
 ```
-etcdctl set /example "Alex"
+etcdctl set /example "Joe"
 ```
 
 On **host1**, the watch now returns with some info about the key change.
@@ -207,7 +207,7 @@ etcdctl watch --recursive /example
 And on **host0**:
 
 ```
-etcdctl set /example/name "Jeff"
+etcdctl set /example/name "Ryan"
 ```
 
 Again the watch returns on **host1**, and this time there is more info given: because we aren't just watching one key, etcd tells us about which key triggered the end of the watch.
@@ -223,7 +223,7 @@ etcdctl exec-watch --recursive /example -- /bin/sh -c 'echo "Hello "$ETCD_WATCH_
 Now on **host0**:
 
 ```
-etcdctl set /example/name "Aleks"
+etcdctl set /example/name "Kylie"
 ```
 
 Note that the specified command was run, but the `etcdctl` client did not exit this time.  You can cause the other watches to behave this way using the `--forever` option to `etcdctl`.  To end this watch, hit Ctrl-C.
@@ -268,7 +268,7 @@ docker rm my_busybox
 Flannel uses one basic concept: a large "allocation network" from which subnets of a specified size (by default, a /24) are self-allocated by hosts participating in the Flannel network.  For this lab, we'll use 10.2.0.0/16, and the default /24-sized subnets, but you can pick any subnet as long as it doesn't conflict with other networks in your environment.  The Flannel network config is set in etcd -- on **host0**:
 
 ```
-etcdctl set /coreos.com/network/config '{ "Network": "10.2.0.0/16" }'
+etcdctl set /coreos.com/network/config '{ "Network": "10.2.0.0/16", "Backend":{"Type":"vxlan"}}'
 ```
 
 Now we need to set up **host0** so that flannel will start on boot, then restart docker so it can use flannel:
@@ -484,11 +484,83 @@ show tables from wordpress;
 
 again.  This time you should see a number of tables in the database; if you further inspected them you would of course see the configuration info, boilerplate starter content, etc. for WordPress.
 
+After you've finished exploring this to your satisfaction, you should `docker stop` the various containers in preparation for the next exercise.
+
+## Exercise 6: Running Kubernetes Easily with bootkube
+
+Although the previous exercise doesn't take an enormous amount of effort, it still involves a fair bit of manual setup of things like SkyDNS entries.  It would be nice if we didn't have to go through so many steps to deploy such a simple application, even if we automated them with some basic scripting.  Fortunately, Kubernetes provides the capability to deploy applications and set up external access to them by using a fairly simple manifest format.  We'll now deploy Kubernetes to our two host nodes and then deploy the basic "guestbook" Kubernetes example app.
+
+Note that this exercise requires using a Linux host, or at least one with a Linux-like environment and a bash-compatible shell.  You can spin up a separate CoreOS instance on Azure for this or use a local laptop or desktop that has `bash` and `git`.
+
+First, `git clone` this repo:
+
+```
+git clone https://github.com/omkensey/coreos-azure-lab
+```
+
+Next, download `kubectl` from the Kubernetes project.  We will be deploying the 1.3.6 version of Kubernetes, so we get the [binary 1.3.6 release tarball](https://github.com/kubernetes/kubernetes/releases/download/v1.3.6/kubernetes.tar.gz).  Unpack the kubectl binary that matches your OS and CPU architecture, and put it somewhere in your bash execution path for convenience.
+
+Now change into the directory with the bootkube tools customized for Azure:
+
+```
+cd coreos-azure-lab/bootkube-azure
+ls
+```
+
+You should see four files there: `init-master.sh`, `init-worker.sh`, `kubelet.master`, and `kubelet.worker`.  These are derived from the same files in the main bootkube project, but have some additional scripting to capture the public IP you call the script with to the host itself, since Azure has no metadata service to allow instances to find their own public IPs.  They also have the call to a function to configure etcd commented out, since we already have a functional etcd cluster with a local proxy.
+
+Find the public IPs of your `host0` and `host1` VMs: `host0` will be our master, and `host1` the worker.
+
+Initialize the master:
+
+```
+./init-master [host0's public IP]
+```
+
+Output will start scrolling up the screen as the script runs.  Watch as the status of pods goes from "DoesNotExist" to "Pending" and eventually to "Running" (this may take up to a minute or two, but no longer than 5 minutes at most).  When all pods are Running, the script will exit.
+
+Verify that you now have a working Kubernetes master node:
+
+```
+kubectl --kubeconfig=cluster/auth/kubeconfig get nodes
+```
+
+You should see a single node listing with status "Ready".
+
+Now initialize the worker node:
+
+```
+./init-worker.sh [host1's public IP] cluster/auth/kubeconfig
+```
+
+This script should run considerably more quickly, but the new node will take a little while to actually become ready.  `watch` the kubectl command until it shows up, then Ctrl-C to break out of the watch:
+
+```
+watch -n 1 kubectl --kubeconfig=cluster/auth/kubeconfig get nodes
+```
+
+You now have a running Kubernetes environment and are ready to deploy the guestbook:
+
+```
+for svc in $(ls ../guestbook/*-service.yaml); do kubectl --kubeconfig=cluster/auth/kubeconfig create -f $svc; done
+for dplymt in $(ls ../guestbook/*-deployment.yaml; do kubectl --kubeconfig=cluster/auth/kubeconfig create -f $dplymt; done
+```
+
+After the first command you should see output about the creatuion of the services, including extended output about the fact that the `frontend` service exposes host port 30080 on every node.  After the second command you should see output about each deployment being created.  `watch` the pods come up until all six are Running, then Ctrl-C out of the watch:
+
+```
+watch -n 1 kubectl --kubeconfig=cluster/auth/kubeconfig get pods
+```
+
+Once all the pods are Running, you should be able to access the guestbook applicationin your browser on either Kubernetes node's public IP, on port 30080.
+
 Finally, from all hosts, containers, databases, etc., you can now
 
 ```
 exit
 ```
+
+and delete the resource group.
 
 ## Further Reading
 

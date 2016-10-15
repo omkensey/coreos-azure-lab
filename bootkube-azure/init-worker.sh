@@ -10,6 +10,10 @@ if [ -f /etc/environment ]; then
   source /etc/environment
 fi
 
+if [ -f /run/metadata/coreos ]; then
+  source /run/metadata/coreos
+fi
+
 function usage() {
     echo "USAGE:"
     echo "$0: <remote-host> <kube-config>"
@@ -46,6 +50,18 @@ function extract_master_endpoint (){
 
 # Initialize a worker node
 function init_worker_node() {
+    COREOS_PRIVATE_IPV4=${COREOS_PRIVATE_IPV4:-${COREOS_AZURE_IPV4_DYNAMIC}}
+    if ! grep COREOS_PRIVATE_IPV4 /etc/environment; then
+      echo "COREOS_PRIVATE_IPV4="$COREOS_PRIVATE_IPV4 >> /etc/environment
+    fi
+
+    if ! grep COREOS_PUBLIC_IPV4 /etc/environment; then
+      if [ -f /tmp/$(cat /etc/machine-id)-public-ip ]; then
+        source /tmp/$(cat /etc/machine-id)-public-ip
+      fi
+      echo "COREOS_PUBLIC_IPV4="$COREOS_PUBLIC_IPV4 >> /etc/environment
+    fi
+
     extract_master_endpoint
 
     # Setup kubeconfig
@@ -67,6 +83,9 @@ function init_worker_node() {
 # This script can execute on a remote host by copying itself + kubelet service unit to remote host.
 # After assets are available on the remote host, the script will execute itself in "local" mode.
 if [ "${REMOTE_HOST}" != "local" ]; then
+
+    # Send public-IP metadata; Azure has no way to read this from inside an instance
+    echo "COREOS_PUBLIC_IPV4="$REMOTE_HOST | ssh -i ${IDENT} -p ${REMOTE_PORT} core@${REMOTE_HOST} 'cat - > /tmp/$(cat /etc/machine-id)-public-ip'
 
     # Copy kubelet service file and kubeconfig to remote host
     scp -i ${IDENT} -P ${REMOTE_PORT} kubelet.worker core@${REMOTE_HOST}:/home/core/kubelet.worker
